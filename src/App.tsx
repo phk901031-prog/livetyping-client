@@ -496,7 +496,37 @@ export default function App() {
         return
       }
 
-      // 4. Enter 확정
+      // 4. ↑ 방향키 → 마지막 세그먼트 수정 모드 진입
+      // (커서가 텍스트 첫 줄에 있을 때만 작동)
+      if (e.key === 'ArrowUp') {
+        const textarea = inputRef.current
+        if (!textarea) return
+        const beforeCursor = textarea.value.slice(0, textarea.selectionStart)
+        // 커서 앞에 줄바꿈이 없으면 = 첫 줄에 있으면 → 세그먼트로 이동
+        if (!beforeCursor.includes('\n')) {
+          const ordered = displayOrder.length > 0
+            ? displayOrder.map(idx => segments.find(s => s.index === idx)).filter(Boolean) as Segment[]
+            : segments
+          if (ordered.length > 0) {
+            e.preventDefault()
+            const lastSeg = ordered[ordered.length - 1]
+            // 자기가 타이핑 중인 세그먼트는 건너뛰기
+            if (lastSeg.index === mySegIndexRef.current) {
+              if (ordered.length > 1) {
+                const prevSeg = ordered[ordered.length - 2]
+                setEditingIndex(prevSeg.index)
+                setEditingText(prevSeg.content)
+              }
+            } else {
+              setEditingIndex(lastSeg.index)
+              setEditingText(lastSeg.content)
+            }
+          }
+        }
+        return
+      }
+
+      // 5. Enter 확정
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         const idx = mySegIndexRef.current
@@ -581,10 +611,74 @@ export default function App() {
 
   const handleInlineKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>, index: number) => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitInlineEdit(index, editingText) }
-      if (e.key === 'Escape') { setEditingIndex(null); setEditingText(''); inputRef.current?.focus() }
+      // Enter → 수정 확정 + 원래 입력창으로 복귀
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        commitInlineEdit(index, editingText)
+        return
+      }
+
+      // Escape → 수정 취소 + 입력창으로 복귀
+      if (e.key === 'Escape') {
+        setEditingIndex(null)
+        setEditingText('')
+        inputRef.current?.focus()
+        return
+      }
+
+      // ↑ 방향키 → 위 세그먼트로 이동
+      // ↓ 방향키 → 아래 세그먼트로 이동 (맨 아래면 입력창으로 복귀)
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        // textarea 안에서 커서가 여러 줄일 때는 기본 동작 유지
+        // (커서가 맨 위 줄에서 ↑ 또는 맨 아래 줄에서 ↓ 일 때만 세그먼트 이동)
+        const textarea = e.currentTarget
+        const cursorPos = textarea.selectionStart
+        const text = textarea.value
+
+        if (e.key === 'ArrowUp') {
+          // 커서가 첫 번째 줄에 있을 때만 위 세그먼트로 이동
+          const beforeCursor = text.slice(0, cursorPos)
+          if (beforeCursor.includes('\n')) return // 아직 위에 줄이 있음 → 기본 동작
+
+          e.preventDefault()
+          // 화면에 보이는 순서대로 세그먼트 목록 구성
+          const ordered = displayOrder.length > 0
+            ? displayOrder.map(idx => segments.find(s => s.index === idx)).filter(Boolean) as Segment[]
+            : segments
+          const currentPos = ordered.findIndex(s => s.index === index)
+          if (currentPos > 0) {
+            // 위 세그먼트로 이동
+            const prevSeg = ordered[currentPos - 1]
+            commitInlineEdit(index, editingText) // 현재 수정 저장
+            setEditingIndex(prevSeg.index)
+            setEditingText(prevSeg.content)
+          }
+        }
+
+        if (e.key === 'ArrowDown') {
+          // 커서가 마지막 줄에 있을 때만 아래로 이동
+          const afterCursor = text.slice(cursorPos)
+          if (afterCursor.includes('\n')) return // 아직 아래에 줄이 있음 → 기본 동작
+
+          e.preventDefault()
+          const ordered = displayOrder.length > 0
+            ? displayOrder.map(idx => segments.find(s => s.index === idx)).filter(Boolean) as Segment[]
+            : segments
+          const currentPos = ordered.findIndex(s => s.index === index)
+          if (currentPos < ordered.length - 1) {
+            // 아래 세그먼트로 이동
+            const nextSeg = ordered[currentPos + 1]
+            commitInlineEdit(index, editingText) // 현재 수정 저장
+            setEditingIndex(nextSeg.index)
+            setEditingText(nextSeg.content)
+          } else {
+            // 맨 아래 세그먼트 → 입력창으로 복귀
+            commitInlineEdit(index, editingText)
+          }
+        }
+      }
     },
-    [editingText, commitInlineEdit]
+    [editingText, commitInlineEdit, segments, displayOrder]
   )
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
