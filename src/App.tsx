@@ -11,12 +11,12 @@ import { io, Socket } from 'socket.io-client'
 import type { UserRole, Segment, Macro, RoomState, Nicknames } from './types'
 
 // ── 유틸리티 (순수 도구 함수) ────────────────────────────────────
-import { buildKeyString, deleteWord } from './utils/helpers'
+import { buildKeyString, deleteWord, extractVideoId } from './utils/helpers'
 
 // ── 훅 (각 담당 부서) ───────────────────────────────────────────
 import { useTheme } from './hooks/useTheme'
 import { useMacros } from './hooks/useMacros'
-import { useYouTube } from './hooks/useYouTube'
+import { useMedia } from './hooks/useMedia'
 
 // ── 컴포넌트 (화면 부품) ────────────────────────────────────────
 import Lobby from './components/Lobby'
@@ -46,7 +46,10 @@ export default function App() {
     showVideo, setShowVideo, videoUrl, setVideoUrl, videoId,
     videoPos, setVideoPos, videoSize, playbackRate,
     loadVideo, changeRate, startSplitterDrag,
-  } = useYouTube()
+    mediaType, localFileUrl, localFileName, localFileMime,
+    localPlayerRef, isTransferring, setIsTransferring,
+    loadLocalFile, receiveYouTube, receiveLocalFile, clearMedia,
+  } = useMedia()
 
   // ── 소켓 / 방 상태 ──────────────────────────────────────────
   const [socket, setSocket] = useState<Socket | null>(null)
@@ -95,6 +98,16 @@ export default function App() {
   roleRef.current = role
   socketRef.current = socket
 
+  // 미디어 동기화용 Ref
+  // 소켓 이벤트 리스너는 처음 한 번만 등록되므로,
+  // 그 안에서 최신 함수를 쓰려면 ref로 "항상 최신 버전"을 가리켜야 함
+  const receiveYouTubeRef = useRef(receiveYouTube)
+  receiveYouTubeRef.current = receiveYouTube
+  const receiveLocalFileRef = useRef(receiveLocalFile)
+  receiveLocalFileRef.current = receiveLocalFile
+  const clearMediaRef = useRef(clearMedia)
+  clearMediaRef.current = clearMedia
+
   // ── 닉네임 헬퍼 ────────────────────────────────────────────
   const displayName = useCallback(
     (r: UserRole | string) => nicknames[r] || r,
@@ -142,6 +155,30 @@ export default function App() {
       if (state.displayOrder?.length > 0) setDisplayOrder([...state.displayOrder])
       if (state.role) { setRole(state.role); roleRef.current = state.role }
       if (state.nicknames) setNicknames(state.nicknames)
+
+      // 늦게 참여한 사람에게 YouTube 영상 정보 전달
+      // (로컬 파일은 바이너리를 서버가 저장하지 않으므로 재전송 불가)
+      if (state.mediaState?.type === 'youtube' && state.mediaState.youtubeId) {
+        receiveYouTubeRef.current(state.mediaState.youtubeId)
+      }
+    })
+
+    // ─── 미디어 동기화 이벤트 ─────────────────────────────────────
+    // 상대방이 YouTube 로드 → 내 화면에도 자동으로 표시
+    s.on('media:youtube', ({ videoId }: { videoId: string }) => {
+      receiveYouTubeRef.current(videoId)
+    })
+
+    // 상대방이 로컬 파일 로드 → 파일 데이터를 받아서 내 화면에서 재생
+    s.on('media:localfile', ({ fileName, mime, data }: {
+      fileName: string; mime: string; size: number; data: ArrayBuffer
+    }) => {
+      receiveLocalFileRef.current(fileName, mime, data)
+    })
+
+    // 상대방이 미디어 닫기
+    s.on('media:clear', () => {
+      clearMediaRef.current()
     })
 
     s.on('member:joined', ({ role: r, nickname: n }: { role: UserRole; nickname?: string }) => {
@@ -212,6 +249,54 @@ export default function App() {
     if (socket.connected) tryJoin()
     else socket.once('connect', tryJoin)
   }, [socket, joinCode, nickname])
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 미디어 로드 (소켓 동기화 포함)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  // YouTube 로드 + 상대방에게 videoId 전송
+  const handleLoadVideo = useCallback(() => {
+    const id = loadVideo() // Hook에서 YouTube 로드 (videoId 반환)
+    if (id && socketRef.current) {
+      // 상대방에게 "이 영상 봐!" 하고 알림
+      socketRef.current.emit('media:youtube', { videoId: id })
+    }
+  }, [loadVideo])
+
+  // 로컬 파일 로드 + 상대방에게 파일 데이터 전송
+  const handleLoadLocalFile = useCallback((file: File) => {
+    loadLocalFile(file) // Hook에서 로컬 재생 시작
+
+    if (!socketRef.current) return
+
+    // 파일을 바이너리 데이터로 읽어서 소켓으로 전송
+    // FileReader: 파일을 읽는 도구 (비동기로 동작)
+    setIsTransferring(true)
+    const reader = new FileReader()
+
+    reader.onload = () => {
+      // reader.result에 파일의 바이너리 데이터(ArrayBuffer)가 들어옴
+      socketRef.current?.emit('media:localfile', {
+        fileName: file.name,
+        mime: file.type,
+        size: file.size,
+        data: reader.result, // 파일 바이너리 데이터
+      }, (res: { ok: boolean; error?: string }) => {
+        setIsTransferring(false)
+        if (!res?.ok) {
+          alert(res?.error || '파일 전송 실패')
+        }
+      })
+    }
+
+    reader.onerror = () => {
+      setIsTransferring(false)
+      alert('파일 읽기 실패')
+    }
+
+    // 파일을 ArrayBuffer(바이너리)로 읽기 시작
+    reader.readAsArrayBuffer(file)
+  }, [loadLocalFile, setIsTransferring])
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 상용구 삽입
@@ -585,8 +670,15 @@ export default function App() {
       <VideoPanel
         videoUrl={videoUrl}
         onVideoUrlChange={setVideoUrl}
-        onLoadVideo={loadVideo}
+        onLoadVideo={handleLoadVideo}
         videoId={videoId}
+        mediaType={mediaType}
+        localFileUrl={localFileUrl}
+        localFileName={localFileName}
+        localFileMime={localFileMime}
+        isTransferring={isTransferring}
+        onLoadLocalFile={handleLoadLocalFile}
+        localPlayerRef={localPlayerRef}
         videoPos={videoPos}
         onVideoPosChange={setVideoPos}
         playbackRate={playbackRate}
