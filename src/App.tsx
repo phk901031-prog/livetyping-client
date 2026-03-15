@@ -121,11 +121,55 @@ export default function App() {
   }, [segments])
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 자동 저장: 세그먼트가 바뀔 때마다 localStorage에 백업
+  // 브라우저를 닫거나 새로고침해도 데이터가 남아있음
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  useEffect(() => {
+    if (!roomCode || segments.length === 0) return
+    // 세션 정보 저장 (방 코드, 역할, 닉네임)
+    localStorage.setItem('lt_session', JSON.stringify({
+      roomCode,
+      role,
+      nickname: nickname || (role === '속기사1' ? '속기사1' : '속기사2'),
+    }))
+    // 세그먼트 백업 저장
+    localStorage.setItem('lt_segments_backup', JSON.stringify(segments))
+    // 표시 순서 저장
+    if (displayOrder.length > 0) {
+      localStorage.setItem('lt_display_order_backup', JSON.stringify(displayOrder))
+    }
+  }, [segments, roomCode, role, nickname, displayOrder])
+
+  // 회의 상태도 저장
+  useEffect(() => {
+    if (roomCode) {
+      localStorage.setItem('lt_meeting_status', meetingStatus)
+    }
+  }, [meetingStatus, roomCode])
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 소켓 연결 및 이벤트
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   useEffect(() => {
-    const s = io(SERVER_URL, { autoConnect: false })
+    // autoConnect: false → 처음엔 수동으로 연결
+    // reconnection: true → 끊기면 자동으로 재시도 (기본값이지만 명시)
+    const s = io(SERVER_URL, {
+      autoConnect: false,
+      reconnection: true,        // 끊기면 자동 재시도
+      reconnectionAttempts: 20,  // 최대 20번 재시도
+      reconnectionDelay: 1000,   // 1초 후 첫 재시도
+      reconnectionDelayMax: 10000, // 최대 10초 간격
+    })
     setSocket(s)
+
+    // 저장된 세션이 있으면 자동으로 소켓 연결 시작
+    // (재접속은 connect 이벤트에서 room:rejoin으로 처리)
+    try {
+      const savedSession = JSON.parse(localStorage.getItem('lt_session') ?? '{}')
+      if (savedSession.roomCode) {
+        s.connect()
+      }
+    } catch { /* 무시 */ }
 
     s.on('connect', () => {
       setConnStatus(prev => {
@@ -135,9 +179,49 @@ export default function App() {
         }
         return 'connected'
       })
+
+      // ── 재접속 시 자동 재입장 ──────────────────────────────
+      // 이전에 방에 들어가 있었다면, 같은 방에 다시 들어감
+      try {
+        const saved = JSON.parse(localStorage.getItem('lt_session') ?? '{}')
+        if (saved.roomCode && saved.role) {
+          s.emit('room:rejoin', saved.roomCode, saved.nickname || saved.role, saved.role,
+            (res: { ok: boolean; error?: string; role?: UserRole }) => {
+              if (res.ok && res.role) {
+                setRoomCode(saved.roomCode)
+                setRole(res.role)
+                roleRef.current = res.role
+                setConnStatus('connected')
+                // 회의 상태 복원
+                const savedStatus = localStorage.getItem('lt_meeting_status')
+                if (savedStatus) setMeetingStatus(savedStatus as MeetingStatus)
+                setReconnectMsg('재접속 성공! 이전 데이터 복원됨')
+                setTimeout(() => setReconnectMsg(''), 3000)
+              } else {
+                // 방이 만료됨 → 저장된 세션 정보 삭제
+                localStorage.removeItem('lt_session')
+                // 로컬 백업 세그먼트는 유지 (혹시 필요할 수 있으므로)
+              }
+            }
+          )
+        }
+      } catch { /* 저장된 세션이 없으면 무시 */ }
     })
 
-    s.on('disconnect', () => setConnStatus('disconnected'))
+    s.on('disconnect', () => {
+      setConnStatus('disconnected')
+      setReconnectMsg('연결이 끊겼습니다. 재연결 시도 중...')
+    })
+
+    // 재연결 시도 중 이벤트
+    s.io.on('reconnect_attempt', (attempt) => {
+      setReconnectMsg(`재연결 시도 중... (${attempt}회)`)
+    })
+
+    // 재연결 실패 (모든 시도 소진)
+    s.io.on('reconnect_failed', () => {
+      setReconnectMsg('재연결 실패. 페이지를 새로고침해 주세요.')
+    })
 
     s.on('state:sync', (state: RoomState) => {
       setSegments(prev => {
@@ -713,6 +797,9 @@ export default function App() {
     setInputText('')
     setMySegIndex(null)
     mySegIndexRef.current = null
+    // 백업도 같이 정리
+    localStorage.removeItem('lt_segments_backup')
+    localStorage.removeItem('lt_display_order_backup')
     inputRef.current?.focus()
   }, [])
 
@@ -739,6 +826,35 @@ export default function App() {
   // 화면 렌더링
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+  // ── 로컬 백업 다운로드 ──────────────────────────────────────
+  // 방이 만료되었어도 이전에 자동 저장된 세그먼트를 텍스트로 다운로드
+  const hasBackup = (() => {
+    try {
+      const backup = JSON.parse(localStorage.getItem('lt_segments_backup') ?? '[]')
+      return backup.length > 0
+    } catch { return false }
+  })()
+
+  const handleDownloadBackup = useCallback(() => {
+    try {
+      const backup: Segment[] = JSON.parse(localStorage.getItem('lt_segments_backup') ?? '[]')
+      const orderBackup: number[] = JSON.parse(localStorage.getItem('lt_display_order_backup') ?? '[]')
+      const ordered = orderBackup.length > 0
+        ? orderBackup.map(idx => backup.find(s => s.index === idx)).filter(Boolean) as Segment[]
+        : backup
+      const text = ordered.map(s => s.content).join('\n')
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const now = new Date()
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      a.download = `회의록_백업_${dateStr}.txt`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch { /* 무시 */ }
+  }, [])
+
   // 방 입장 전 → 로비 화면
   if (!roomCode) {
     return (
@@ -751,6 +867,8 @@ export default function App() {
         connStatus={connStatus}
         onCreateRoom={handleCreateRoom}
         onJoinRoom={handleJoinRoom}
+        hasBackup={hasBackup}
+        onDownloadBackup={handleDownloadBackup}
       />
     )
   }

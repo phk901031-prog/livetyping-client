@@ -18,6 +18,8 @@ interface LobbyProps {
   connStatus: ConnStatus                  // 연결 상태
   onCreateRoom: () => void                // "새 방 만들기" 클릭 시
   onJoinRoom: () => void                  // "방 참여하기" 클릭 시
+  hasBackup?: boolean                     // 로컬 백업 데이터가 있는지
+  onDownloadBackup?: () => void           // 백업 데이터 다운로드
 }
 
 export default function Lobby({
@@ -29,6 +31,8 @@ export default function Lobby({
   connStatus,
   onCreateRoom,
   onJoinRoom,
+  hasBackup,
+  onDownloadBackup,
 }: LobbyProps) {
   return (
     <div className="mode-screen">
@@ -86,6 +90,16 @@ export default function Lobby({
             </button>
           </div>
         </div>
+
+        {/* 로컬 백업 복원 버튼 */}
+        {hasBackup && onDownloadBackup && (
+          <div className="backup-notice">
+            <p className="backup-text">이전 회의 데이터가 남아있습니다.</p>
+            <button className="btn-backup" onClick={onDownloadBackup}>
+              이전 데이터 다운로드 (txt)
+            </button>
+          </div>
+        )}
 
         {/* 연결 중 표시 */}
         {connStatus === 'connecting' && (
