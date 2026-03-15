@@ -496,9 +496,10 @@ export default function App() {
         return
       }
 
-      // 4. ↑ 방향키 → 마지막 세그먼트 수정 모드 진입
-      // (커서가 텍스트 첫 줄에 있을 때만 작동)
-      if (e.key === 'ArrowUp') {
+      // 4. 위 세그먼트 이동 키 → 마지막 세그먼트 수정 모드 진입
+      // (기본: ↑ 방향키, 상용구 패널에서 변경 가능)
+      // 커서가 텍스트 첫 줄에 있을 때만 작동
+      if (keyStr === macroConfigRef.current.segUpKey) {
         const textarea = inputRef.current
         if (!textarea) return
         const beforeCursor = textarea.value.slice(0, textarea.selectionStart)
@@ -626,16 +627,21 @@ export default function App() {
         return
       }
 
-      // ↑ 방향키 → 위 세그먼트로 이동
-      // ↓ 방향키 → 아래 세그먼트로 이동 (맨 아래면 입력창으로 복귀)
-      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      // 세그먼트 이동 키 (기본: ↑↓ 방향키, 상용구 패널에서 변경 가능)
+      // 위 키 → 위 세그먼트로 이동
+      // 아래 키 → 아래 세그먼트로 이동 (맨 아래면 입력창으로 복귀)
+      const keyStr = buildKeyString(e)
+      const isUp = keyStr === macroConfigRef.current.segUpKey
+      const isDown = keyStr === macroConfigRef.current.segDownKey
+
+      if (isUp || isDown) {
         // textarea 안에서 커서가 여러 줄일 때는 기본 동작 유지
         // (커서가 맨 위 줄에서 ↑ 또는 맨 아래 줄에서 ↓ 일 때만 세그먼트 이동)
         const textarea = e.currentTarget
         const cursorPos = textarea.selectionStart
         const text = textarea.value
 
-        if (e.key === 'ArrowUp') {
+        if (isUp) {
           // 커서가 첫 번째 줄에 있을 때만 위 세그먼트로 이동
           const beforeCursor = text.slice(0, cursorPos)
           if (beforeCursor.includes('\n')) return // 아직 위에 줄이 있음 → 기본 동작
@@ -655,7 +661,7 @@ export default function App() {
           }
         }
 
-        if (e.key === 'ArrowDown') {
+        if (isDown) {
           // 커서가 마지막 줄에 있을 때만 아래로 이동
           const afterCursor = text.slice(cursorPos)
           if (afterCursor.includes('\n')) return // 아직 아래에 줄이 있음 → 기본 동작

@@ -58,6 +58,9 @@ export default function InputArea({
           <span className="key-hint">
             간단등록 <kbd>{macroConfig.quickAddKey}</kbd>
           </span>
+          <span className="key-hint">
+            이동 <kbd>{macroConfig.segUpKey}</kbd><kbd>{macroConfig.segDownKey}</kbd>
+          </span>
           {quickAddMsg && <span className="quick-add-msg">{quickAddMsg}</span>}
         </div>
       </div>

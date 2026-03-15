@@ -22,15 +22,22 @@ export function useMacros() {
   })
 
   // ── 키 설정 ──────────────────────────────────────────────────
-  // 트리거키(F3), 단어삭제키(F4), 간단등록키(F5) 설정
+  // 트리거키(F3), 단어삭제키(F4), 간단등록키(F5), 세그먼트 이동(↑↓) 설정
+  const DEFAULT_CONFIG: MacroConfig = {
+    triggerKey: 'F3',
+    jasoDeleteKey: 'F4',
+    quickAddKey: 'F5',
+    segUpKey: 'ArrowUp',      // 위 세그먼트로 이동 (기본: ↑ 방향키)
+    segDownKey: 'ArrowDown',   // 아래 세그먼트로 이동 (기본: ↓ 방향키)
+  }
   const [macroConfig, setMacroConfig] = useState<MacroConfig>(() => {
     try {
-      return JSON.parse(
-        localStorage.getItem('lt_macro_config') ??
-          '{"triggerKey":"F3","jasoDeleteKey":"F4","quickAddKey":"F5"}'
-      )
+      // localStorage에서 불러온 뒤, 새로 추가된 키가 없으면 기본값으로 채움
+      // (기존 사용자가 업데이트하면 segUpKey/segDownKey가 없을 수 있으므로)
+      const saved = JSON.parse(localStorage.getItem('lt_macro_config') ?? '{}')
+      return { ...DEFAULT_CONFIG, ...saved }
     } catch {
-      return { triggerKey: 'F3', jasoDeleteKey: 'F4', quickAddKey: 'F5' }
+      return DEFAULT_CONFIG
     }
   })
 
