@@ -78,8 +78,10 @@ export default function DisplayBoard({ roomCode }: DisplayBoardProps) {
     socketRef.current = s
 
     s.on('connect', () => {
+      console.log('[DisplayBoard] 서버 연결됨, display:join 시도:', roomCode)
       // 전광판 전용 접속 (읽기 전용)
       s.emit('display:join', roomCode, (res: { ok: boolean; error?: string }) => {
+        console.log('[DisplayBoard] display:join 응답:', res)
         if (res.ok) {
           setConnected(true)
           setError('')
@@ -87,6 +89,11 @@ export default function DisplayBoard({ roomCode }: DisplayBoardProps) {
           setError(res.error || '접속 실패')
         }
       })
+    })
+
+    s.on('connect_error', (err) => {
+      console.log('[DisplayBoard] 연결 에러:', err.message)
+      setError(`서버 연결 실패: ${err.message}`)
     })
 
     s.on('disconnect', () => setConnected(false))

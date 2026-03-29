@@ -21,11 +21,24 @@ import './App.css'                   // 👕 앱 전체 스타일(옷)
 const hash = window.location.hash   // 예: '#display?code=123456'
 const isDisplay = hash.startsWith('#display')
 
-// 방 코드 추출
+// 방 코드 추출 — 여러 URL 형태 지원
+// #display?code=123456, #display&code=123456, #display/123456
 let displayRoomCode = ''
 if (isDisplay) {
-  const params = new URLSearchParams(hash.replace('#display', '').replace('?', ''))
-  displayRoomCode = params.get('code') || ''
+  // ?code= 또는 &code= 에서 추출
+  const codeMatch = hash.match(/code=(\d{6})/)
+  if (codeMatch) {
+    displayRoomCode = codeMatch[1]
+  } else {
+    // #display/123456 형태
+    const slashMatch = hash.match(/#display\/(\d{6})/)
+    if (slashMatch) displayRoomCode = slashMatch[1]
+  }
+}
+
+// 디버깅용 콘솔 (문제 발생 시 확인용)
+if (isDisplay) {
+  console.log('[DisplayBoard] hash:', hash, '→ roomCode:', displayRoomCode)
 }
 
 // HTML의 <div id="root">를 찾아서 React 앱을 그 안에 렌더링(그려넣기)
