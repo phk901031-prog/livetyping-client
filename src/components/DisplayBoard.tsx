@@ -27,7 +27,8 @@ interface DisplaySettings {
   fontFamily: string     // 글꼴
   transparent: boolean   // 투명 배경 (OBS용)
   showCount: number      // 표시할 완료 세그먼트 수
-  position: 'bottom' | 'top' | 'center'  // 자막 위치
+  position: 'bottom' | 'top' | 'center'  // 자막 세로 위치
+  textAlign: 'left' | 'center' | 'right'  // 텍스트 가로 정렬
 }
 
 const DEFAULT_SETTINGS: DisplaySettings = {
@@ -39,6 +40,7 @@ const DEFAULT_SETTINGS: DisplaySettings = {
   transparent: false,
   showCount: 3,
   position: 'bottom',
+  textAlign: 'left',
 }
 
 const FONTS = ['Malgun Gothic', '맑은 고딕', '나눔고딕', '돋움', '굴림', 'Arial', 'sans-serif']
@@ -217,7 +219,7 @@ export default function DisplayBoard({ roomCode }: DisplayBoardProps) {
               onChange={e => set('showCount', Number(e.target.value))} />
           </div>
           <div className="ds-row">
-            <label>자막 위치</label>
+            <label>자막 위치 (세로)</label>
             <select value={settings.position}
               onChange={e => set('position', e.target.value as 'top' | 'center' | 'bottom')}>
               <option value="top">상단</option>
@@ -225,16 +227,31 @@ export default function DisplayBoard({ roomCode }: DisplayBoardProps) {
               <option value="bottom">하단</option>
             </select>
           </div>
+          <div className="ds-row">
+            <label>텍스트 정렬</label>
+            <select value={settings.textAlign}
+              onChange={e => set('textAlign', e.target.value as 'left' | 'center' | 'right')}>
+              <option value="left">좌측</option>
+              <option value="center">중앙</option>
+              <option value="right">우측</option>
+            </select>
+          </div>
           <div className="ds-row ds-url-info">
             <label>OBS 브라우저 소스 URL:</label>
             <code className="ds-url">{window.location.href}</code>
           </div>
+          <button className="btn-ds-fullscreen" onClick={() => {
+            if (document.fullscreenElement) document.exitFullscreen()
+            else document.documentElement.requestFullscreen()
+          }}>
+            {document.fullscreenElement ? '전체화면 해제' : '⛶ 전체화면 (상단바 숨기기)'}
+          </button>
           <button className="btn-ds-close" onClick={() => setShowSettings(false)}>닫기</button>
         </div>
       )}
 
       {/* 자막 표시 영역 */}
-      <div className="display-content" style={positionStyle}>
+      <div className="display-content" style={{ ...positionStyle, textAlign: settings.textAlign }}>
         {visible.length === 0 && connected && (
           <p className="display-empty" style={{ color: settings.textColor, opacity: 0.3 }}>
             입력 대기 중…
